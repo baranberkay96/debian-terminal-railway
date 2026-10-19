@@ -1,0 +1,111 @@
+# Debian Web Terminal auth proxy.
+# The entrypoint renders this file to /etc/nginx/nginx.conf at every start
+# (placeholders: @PORT@, @TTYD_PORT@, @AUTH_HEADER@, @HTPASSWD_FILE@, @LISTEN_V6@).
+# Edits to /etc/nginx/nginx.conf are overwritten on restart.
+
+user www-data;
+worker_processes 1;
+daemon off;
+pid /run/nginx.pid;
+error_log stderr warn;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    server_tokens off;
+    default_type application/octet-stream;
+    client_max_body_size 1m;
+    keepalive_timeout 65s;
+
+    # Railway's edge passes the client address in X-Real-IP. It is only used
+    # as the rate-limit key.
+    map $http_x_real_ip $client_key {
+        ""      $binary_remote_addr;
+        default $http_x_real_ip;
+    }
+
+    # Host part of the Origin header. "-" means no Origin, which only
+    # non-browser clients (curl, wscat) send.
+    map $http_origin $origin_host {
+        ""                                              "-";
+        "~^https?://(?<origin_name>[^/:]+)(:[0-9]+)?/?$" $origin_name;
+        default                                         "!invalid";
+    }
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ""      close;
+    }
+
+    log_format terminal '$time_iso8601 $client_key "$remote_user" "$request_method $uri" $status';
+    access_log /dev/stdout terminal;
+
+    # Slows password guessing. A page load plus WebSocket is about 3 requests.
+    limit_req_zone $client_key zone=terminal:1m rate=10r/s;
+    limit_req_status 429;
+
+    server {
+        listen @PORT@ default_server;
+        @LISTEN_V6@
+        server_name _;
+
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Content-Security-Policy "frame-ancestors 'self'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+
+        # Railway healthcheck, no password. It goes through nginx to ttyd's
+        # /token endpoint, so it only passes when both processes are up. In
+        # auth-header mode ttyd answers {"token": ""}, which holds no secret.
+        location = /healthz {
+            access_log off;
+            auth_basic off;
+            limit_except GET {
+                deny all;
+            }
+            proxy_pass http://127.0.0.1:@TTYD_PORT@/token;
+            proxy_set_header Host $http_host;
+            proxy_set_header @AUTH_HEADER@ "railway-healthcheck";
+            proxy_set_header Authorization "";
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 10s;
+        }
+
+        # Everything else needs the password: the page, /token and the /ws
+        # WebSocket.
+        location / {
+            limit_req zone=terminal burst=40 nodelay;
+            auth_basic "Debian terminal";
+            auth_basic_user_file @HTPASSWD_FILE@;
+
+            # Cross-site WebSocket hijacking protection. Browsers attach cached
+            # basic-auth credentials to WebSocket requests from other sites, so
+            # a request with an Origin must come from this host. Ports are
+            # ignored, because the edge may or may not include one in Host.
+            set $origin_ok "no";
+            if ($origin_host = "-") {
+                set $origin_ok "yes";
+            }
+            if ($origin_host = $host) {
+                set $origin_ok "yes";
+            }
+            if ($origin_ok = "no") {
+                return 403;
+            }
+
+            proxy_pass http://127.0.0.1:@TTYD_PORT@;
+            proxy_http_version 1.1;
+            proxy_set_header Host $http_host;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            # Always overwritten here, so a client cannot set it.
+            proxy_set_header @AUTH_HEADER@ $remote_user;
+            proxy_set_header Authorization "";
+            proxy_buffering off;
+            proxy_read_timeout 1d;
+            proxy_send_timeout 1d;
+        }
+    }
+}

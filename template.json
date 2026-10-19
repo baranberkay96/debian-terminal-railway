@@ -1,0 +1,88 @@
+{
+  "name": "Debian 13 Web Terminal (Browser Shell)",
+  "description": "Persistent Debian shell in your browser, password-protected. No SSH needed.",
+  "category": "Other",
+  "tags": [
+    "debian",
+    "terminal",
+    "web-terminal",
+    "ttyd",
+    "tmux",
+    "shell",
+    "linux",
+    "devbox"
+  ],
+  "image": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/debian-linux.svg",
+  "upstream": {
+    "repo": "tsl0922/ttyd",
+    "version": "1.7.7",
+    "base": "debian:13.7",
+    "checked": "2026-10-20"
+  },
+  "services": {
+    "Terminal": {
+      "icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/debian-linux.svg",
+      "source": {
+        "repo": "baranberkay96/debian-terminal-railway",
+        "rootDirectory": "/services/terminal"
+      },
+      "startCommand": null,
+      "preDeployCommand": null,
+      "healthcheckPath": "/healthz",
+      "healthcheckTimeout": 120,
+      "restartPolicyType": "ON_FAILURE",
+      "restartPolicyMaxRetries": 10,
+      "numReplicas": 1,
+      "cronSchedule": null,
+      "publicDomain": true,
+      "targetPort": 8080,
+      "tcpProxy": null,
+      "volume": {
+        "mountPath": "/home"
+      },
+      "variables": {
+        "PASSWORD": {
+          "defaultValue": "${{secret(32)}}",
+          "description": "Browser login password, generated at deploy (copy it from this variable). Min 12 chars. The terminal does not start without it.",
+          "required": false
+        },
+        "USERNAME": {
+          "defaultValue": "debian",
+          "description": "Browser login name (letters, digits, . _ -). The Linux account is always 'debian', with sudo.",
+          "required": false
+        },
+        "PORT": {
+          "defaultValue": "8080",
+          "description": "Port of the auth proxy (nginx). The public domain and healthcheck use it. ttyd stays on 127.0.0.1:7681.",
+          "required": false
+        },
+        "TERMINAL_TMUX": {
+          "defaultValue": "true",
+          "description": "true: each tab attaches to a tmux session that survives closed tabs and reconnects. false: a new bash per tab.",
+          "required": false
+        },
+        "TERMINAL_FONT_SIZE": {
+          "defaultValue": "15",
+          "description": "Font size of the browser terminal (8-40).",
+          "required": false
+        },
+        "APT_PACKAGES": {
+          "defaultValue": "",
+          "description": "Optional. Debian packages (space-separated) reinstalled in the background at every start, since apt installs reset on redeploy.",
+          "required": false
+        },
+        "TZ": {
+          "defaultValue": "UTC",
+          "description": "Time zone of the shell, e.g. Europe/Istanbul.",
+          "required": false
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "15",
+          "description": "Seconds between stop signal and kill on redeploy, so tmux shells exit cleanly and save history.",
+          "required": false
+        }
+      }
+    }
+  },
+  "buckets": []
+}

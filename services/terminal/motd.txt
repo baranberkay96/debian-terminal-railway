@@ -1,0 +1,18 @@
+
+  Debian 13 (trixie) web terminal on Railway
+  --------------------------------------------------------------------------
+  Saved:     /home/debian is a Railway volume. The rest of the system resets
+             on every redeploy.
+  Sessions:  tmux keeps this shell running when the tab closes. Reopen the URL
+             to resume. New window: Ctrl-b c. Next: Ctrl-b n. Detach: Ctrl-b d.
+             Separate session: add ?arg=work to the URL.
+  Packages:  sudo apt update && sudo apt install PACKAGE
+             To reinstall a package after redeploys, add its name to
+             ~/.config/debian-terminal/apt-packages.
+  Tools:     git, curl, vim, nano, htop, build-essential, python3, pipx,
+             node, npm (npm -g installs into ~/.npm-global).
+  Copying:   hold Shift while selecting text (tmux mouse mode is on).
+  Fair use:  Railway's Acceptable Use Policy applies. No crypto mining,
+             proxies, anonymizers or torrenting.
+  Banner:    touch ~/.hushlogin hides this message.
+
