@@ -43,7 +43,7 @@
       "variables": {
         "PASSWORD": {
           "defaultValue": "${{secret(32)}}",
-          "description": "Browser login password, generated at deploy (copy it from this variable). Min 12 chars. The terminal does not start without it.",
+          "description": "Browser login password, generated at deploy (copy it from this variable). 12-256 chars; a shorter or empty one locks the login.",
           "required": false
         },
         "USERNAME": {

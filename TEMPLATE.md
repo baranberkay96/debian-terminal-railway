@@ -10,7 +10,7 @@
 | Tags | debian, terminal, web-terminal, ttyd, tmux, shell, linux, devbox |
 | Icon | `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/debian-linux.svg` (200, image/svg+xml) |
 
-The template delivers the description as written. "Persistent": `/home` is a volume, and tmux keeps sessions alive across browser reconnects. "Password-protected": nginx basic auth with a `secret(32)` password, and the service refuses to start without one. "No SSH needed": the shell is served over Railway's HTTPS domain.
+The template delivers the description as written. "Persistent": `/home` is a volume, and tmux keeps sessions alive across browser reconnects. "Password-protected": nginx basic auth with a `secret(32)` password; without a usable one the login is locked, never open. "No SSH needed": the shell is served over Railway's HTTPS domain.
 
 ## Base market template
 
@@ -71,7 +71,7 @@ ARGs at the top of `services/terminal/Dockerfile` hold the versions and checksum
 
 Files in `services/terminal/`:
 - `Dockerfile`: `debian:13.7`, the apt toolset, ttyd and Node.js with checksums, user `debian` (uid 1000) with passwordless sudo, and a skel `.bashrc` hook.
-- `entrypoint.sh`: validates the variables and fails closed without a password. It seeds `/home/debian` on first boot, writes the htpasswd file (SHA-512 crypt via `openssl passwd -6 -stdin`, root:www-data 0640), renders the nginx config (adds the IPv6 listener only if the container has IPv6) and checks it with `nginx -t`. Then it unsets `PASSWORD`, starts the optional apt restore in the background, starts ttyd as `debian` through `setpriv`, waits for it, and starts nginx. It supervises both: if either exits, the container exits. On SIGTERM it runs `tmux kill-server` (shells save history) and stops both processes.
+- `entrypoint.sh`: validates the variables without ever failing the deploy: invalid `PORT`, `USERNAME` and `TERMINAL_FONT_SIZE` values fall back to the defaults with a warning, and an empty, short or overlong `PASSWORD` locks the login with a random password nobody knows (fail closed). It seeds `/home/debian` on first boot, writes the htpasswd file (SHA-512 crypt via `openssl passwd -6 -stdin`, root:www-data 0640), renders the nginx config (adds the IPv6 listener only if the container has IPv6) and checks it with `nginx -t`. Then it unsets `PASSWORD`, starts the optional apt restore in the background, starts ttyd as `debian` through `setpriv`, waits for it, and starts nginx. It supervises both: if either exits, the container exits. On SIGTERM it runs `tmux kill-server` (shells save history) and stops both processes.
 - `terminal-session.sh`: run by ttyd for each tab. Attaches to tmux session `main`, or to the session named by `?arg=NAME` (validated `[A-Za-z0-9_-]{1,32}`). Falls back to `bash --login` when `TERMINAL_TMUX=false`.
 - `nginx.conf.template`: auth proxy (see below).
 - `bashrc.sh` → `/etc/debian-terminal/bashrc`: PATH (`~/.npm-global/bin`, `~/.local/bin`, `~/bin`), `NPM_CONFIG_PREFIX=~/.npm-global`, 50k history appended after every command, git-aware prompt, aliases (`ll`, `fd`), and a banner (motd + fastfetch) once per tmux session. Sourced from the last line of `~/.bashrc`, so image updates refresh the defaults without touching user files.
@@ -82,7 +82,7 @@ Files in `services/terminal/`:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PASSWORD` | `${{secret(32)}}` | Browser login. At least 12 characters, otherwise the service exits with a clear log message. Only its hash is stored; it is unset before ttyd, nginx and the shells start. |
+| `PASSWORD` | `${{secret(32)}}` | Browser login. 12-256 bytes, one line. Otherwise the service still starts, but the login is locked with a random password and the log says how to fix it. Only its hash is stored; it is unset before ttyd, nginx and the shells start. |
 | `USERNAME` | `debian` | Browser login name, `[A-Za-z0-9._-]{1,64}`. The Linux account is always `debian`. |
 | `PORT` | `8080` | nginx listen port. Rule 8.1: Railway's healthcheck probes this port. 7681 is reserved for ttyd. |
 | `TERMINAL_TMUX` | `true` | `false` gives one plain login shell per tab (no persistence across reconnects). |
@@ -115,7 +115,7 @@ PID 1 (Rule 8.3): nothing depends on being PID 1. tini runs with `-s` (child sub
 
 ## Improvements over market templates
 
-1. **Never an open shell**: generated `secret(32)` password, and the service fails closed if `PASSWORD` is empty or shorter than 12 characters. Market: user-typed credentials with no strength check. ttyd even accepts an empty `:` pair.
+1. **Never an open shell**: generated `secret(32)` password, and the login is locked (fail closed, without failing the deploy) if `PASSWORD` is empty, shorter than 12 characters or longer than 256 bytes. Market: user-typed credentials with no strength check. ttyd even accepts an empty `:` pair.
 2. **No secret in logs, `ps` or the shell environment**: nginx holds a SHA-512 crypt hash, and ttyd runs in auth-header mode. Market: `ttyd -c` logs the base64 credential at startup and shows it in the process list.
 3. **Persistent home**: the whole `/home` is on a volume, including dotfiles, history, venvs, pipx and `npm -g` (`~/.npm-global`). Market: no volume (leader), or only a manual `/data` directory with `/root` lost.
 4. **Sessions survive reconnects**: every tab attaches to tmux (`main`, or a named session via `?arg=`). Market: a new bash per connection, and closing the tab kills running jobs.
@@ -151,7 +151,7 @@ Minimum plan: **Trial** runs it (well under 1 GB idle), but large builds can hit
 - [ ] Cross-site check: `curl -i -u debian:PASS -H 'Origin: https://evil.example' https://{domain}/` → `403`. The same request with `Origin: https://{domain}` → `200`.
 - [ ] Tools: `git --version`, `python3 -V` (3.13), `node -v` (v24.22.0), `npm i -g cowsay && which cowsay` (in `~/.npm-global/bin`), `gcc --version`, `tmux -V` (3.5a), `fastfetch`.
 - [ ] Persistence: create `~/test.txt`, add `jq` to `~/.config/debian-terminal/apt-packages` after `sudo apt remove jq`, then redeploy. `~/test.txt` and history survive, and `/var/log/debian-terminal/apt-restore.log` shows jq reinstalled.
-- [ ] Set `PASSWORD` to empty and redeploy: the deploy fails with the "PASSWORD is empty or shorter than 12 characters" log line, and no shell is served.
+- [ ] Set `PASSWORD` to empty or `abc` and redeploy: the deploy succeeds, the log shows "PASSWORD is empty or shorter than 12 characters. The login is locked", and every password gets 401.
 
 ## Open questions
 
